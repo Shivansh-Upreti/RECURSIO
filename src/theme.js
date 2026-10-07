@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 const KEY = 'recursio-theme';
 export const MODES = ['light', 'system', 'dark'];
 
-const read = () => { try { const v = localStorage.getItem(KEY); return MODES.includes(v) ? v : 'system'; } catch (e) { return 'system'; } };
+const read = () => { try { const v = localStorage.getItem(KEY); return MODES.includes(v) ? v : 'dark'; } catch (e) { return 'dark'; } };
 const systemDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 /** mode = what the user chose; resolved = what is actually shown. */

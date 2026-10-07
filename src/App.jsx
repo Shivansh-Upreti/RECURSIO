@@ -1,191 +1,45 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildTrace, describe, fmt, label, replay } from './engine/engine.js';
-import { PRESETS, byId, parseList, CUSTOM_DEFAULT } from './engine/presets.js';
-import { analyze } from './engine/analysis.js';
-import { emptyTrace, runCustomSandboxed } from './engine/runner.js';
-import Navbar from './components/Navbar.jsx';
-import Hero from './components/Hero.jsx';
-import ControlCenter from './components/ControlCenter.jsx';
-import CodePanel from './components/CodePanel.jsx';
-import WhyPanel from './components/WhyPanel.jsx';
-import Visualizer from './components/Visualizer.jsx';
-import InsightTabs from './components/InsightTabs.jsx';
-import PlaybackBar from './components/PlaybackBar.jsx';
-import Toasts from './components/Toasts.jsx';
+import { lazy, Suspense } from 'react';
+import { motion } from 'framer-motion';
+import Navbar from './platform/components/Navbar.jsx';
+import Footer from './platform/components/Footer.jsx';
+import Landing from './platform/components/Landing.jsx';
+import { MODULES } from './platform/algorithms/index.js';
+import { topicById } from './platform/topics.js';
+import { href, useRoute } from './platform/router.js';
 
-const defaults = (pr) => Object.fromEntries(pr.params.map((p) => [p.key, p.def]));
+// Recursion keeps its original, fully-featured interface; it is code-split so other pages stay light.
+const RecursionPage = lazy(() => import('./modules/recursion/RecursionPage.jsx'));
+const AlgoPage = lazy(() => import('./platform/components/AlgoPage.jsx'));
 
-/** Turn raw field text into typed, clamped values. Everything the engine receives passes through here. */
-function normalize(pr, raw) {
-  const v = {};
-  pr.params.forEach((p) => {
-    const r = raw[p.key];
-    if (p.type === 'int') { let n = parseInt(r, 10); if (!Number.isFinite(n)) n = p.def; v[p.key] = Math.max(p.min, Math.min(p.max, n)); }
-    else if (p.type === 'numlist') v[p.key] = parseList(r, true).slice(0, p.max || 10);
-    else if (p.type === 'list') v[p.key] = parseList(r, false).slice(0, p.max || 10);
-    else v[p.key] = String(r).slice(0, 200);
-  });
-  return v;
+function Fallback() {
+  return <p className="py-24 text-center text-slate-400 dark:text-zinc-500">Loading…</p>;
 }
 
-const HALT_TOASTS = {
-  depth: (t) => ({ tone: 'warn', title: 'Stack depth limit reached', msg: `Execution was halted at ${t.maxDepth} nested calls (a real runtime would throw a RangeError). Check for a missing base case, or a call that doesn't move toward it.` }),
-  time: () => ({ tone: 'error', title: 'Time limit exceeded', msg: 'The run was stopped to protect your browser. Look for an infinite loop or far too much work per call.' }),
-  events: () => ({ tone: 'warn', title: 'Trace truncated', msg: 'The run produced more steps than can be visualized. Try a smaller input.' }),
-};
+function NotFound({ route }) {
+  const t = topicById(route);
+  return (
+    <div className="mx-auto max-w-[900px] px-5 py-24 text-center">
+      <h1 className="font-serif text-4xl font-semibold text-slate-900 dark:text-white">{t ? `${t.title} is coming soon` : 'Page not found'}</h1>
+      <p className="mt-3 text-slate-600 dark:text-zinc-300">{t ? 'This topic is on the roadmap but has no interactive module yet.' : 'That topic does not exist.'}</p>
+      <a href={href('')} className="btn btn-primary mt-6 !rounded-full">← Back to all topics</a>
+    </div>
+  );
+}
 
 export default function App() {
-  const [presetId, setPresetId] = useState('factorial');
-  const preset = byId(presetId);
-  const [vals, setVals] = useState(() => defaults(preset));
-  const [draft, setDraft] = useState(CUSTOM_DEFAULT);
-  // Custom code only (re)runs when the learner presses Run, so half-edited code never executes.
-  const [committed, setCommitted] = useState({ src: CUSTOM_DEFAULT, call: 'sumTo(4)', depth: 40 });
-  const [runNonce, setRunNonce] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [customTrace, setCustomTrace] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  const typed = useMemo(() => normalize(preset, vals), [preset, vals]);
-  const syncTrace = useMemo(() => (preset.custom ? null : buildTrace((T) => preset.run(T, typed), { maxDepth: preset.maxDepth || 200 })), [preset, typed]);
-
-  useEffect(() => {
-    if (!preset.custom) return undefined;
-    let cancelled = false;
-    setBusy(true);
-    runCustomSandboxed(committed.src, committed.call, { maxDepth: committed.depth }).then((tr) => { if (!cancelled) { setCustomTrace(tr); setBusy(false); } });
-    return () => { cancelled = true; };
-  }, [preset, committed, runNonce]);
-
-  // Must be referentially stable: effects key off `trace`, and a fresh object each render would loop.
-  const placeholder = useMemo(() => emptyTrace(null, null, committed.depth), [committed.depth]);
-  const trace = preset.custom ? (customTrace || placeholder) : syncTrace;
-  const source = preset.custom ? committed.src : preset.code;
-  const analysis = useMemo(() => analyze(trace, source.split('\n'), preset), [trace, source, preset]);
-
-  /* ---- stepping ---- */
-  const [gran, setGran] = useState('line');
-  const [pos, setPos] = useState(-1);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
-  const [predictOn, setPredictOn] = useState(false);
-  const [pending, setPending] = useState(null);
-  const [feedback, setFeedback] = useState(null);
-  const [score, setScore] = useState({ ok: 0, n: 0 });
-  const [flash, setFlash] = useState(null);
-  const answered = useRef(new Set());
-
-  const steps = useMemo(() => trace.events.map((e, i) => i).filter((i) => gran === 'line' || trace.events[i].k !== 'line'), [trace, gran]);
-  // pos can briefly outlive a trace swap (it is reset in an effect), so clamp it against the current steps.
-  const idx = pos < 0 || !steps.length ? -1 : steps[Math.min(pos, steps.length - 1)];
-  const state = useMemo(() => replay(trace, idx), [trace, idx]);
-  const desc = useMemo(() => describe(trace, idx), [trace, idx]);
-
-  useEffect(() => { setPos(-1); setPlaying(false); setPending(null); setFeedback(null); answered.current = new Set(); }, [trace]);
-
-  const forward = useCallback(() => {
-    if (pending) return false;
-    if (pos >= steps.length - 1) return false;
-    const i = steps[pos + 1], e = trace.events[i];
-    if (predictOn && e.k === 'ret' && e.value !== undefined && !e.cached && !answered.current.has(i)) { setPending({ idx: i }); return false; }
-    setPos(pos + 1); setFeedback(null);
-    return true;
-  }, [pending, pos, steps, trace, predictOn]);
-
-  useEffect(() => {
-    if (!playing) return undefined;
-    const id = setTimeout(() => { if (!forward()) setPlaying(false); }, 1000 / speed);
-    return () => clearTimeout(id);
-  }, [playing, pos, speed, forward]);
-
-  const goto = (p) => { setPlaying(false); setPending(null); setFeedback(null); setPos(Math.max(-1, Math.min(steps.length - 1, p))); };
-  const stepForward = () => { setPlaying(false); forward(); };
-  const stepBack = () => { if (pos >= 0) goto(pos - 1); };
-  const togglePlay = () => {
-    if (playing) { setPlaying(false); return; }
-    if (pos >= steps.length - 1) setPos(-1);
-    setPending(null); setPlaying(true);
-  };
-  const changeGran = (g) => {
-    setPlaying(false); setPending(null);
-    const ns = trace.events.map((e, i) => i).filter((i) => g === 'line' || trace.events[i].k !== 'line');
-    let np = -1; for (let i = 0; i < ns.length; i++) if (ns[i] <= idx) np = i;
-    setGran(g); setPos(np);
-  };
-
-  const prediction = useMemo(() => {
-    if (!pending) return null;
-    const e = trace.events[pending.idx], n = trace.nodes[e.id];
-    const advance = () => { answered.current.add(pending.idx); setPending(null); setPos(pos + 1); };
-    return {
-      idx: pending.idx, label: label(n),
-      onAnswer: (txt) => {
-        const norm = (s) => String(s).replace(/\s+/g, '').replace(/^"|"$/g, '').toLowerCase();
-        const ok = norm(txt) === norm(fmt(e.value, 200));
-        setScore((s) => ({ ok: s.ok + (ok ? 1 : 0), n: s.n + 1 }));
-        advance();
-        setFeedback(ok ? { ok, text: `Correct: it returns ${fmt(e.value)}.` } : { ok, text: `You said "${String(txt).slice(0, 40) || '(nothing)'}"; it returns ${fmt(e.value)}. Trace which values the sub-calls handed back.` });
-      },
-      onSkip: () => { advance(); setFeedback(null); },
-    };
-  }, [pending, trace, pos]);
-
-  /* ---- notifications for halted runs ---- */
-  const [toasts, setToasts] = useState([]);
-  const closeToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
-  useEffect(() => {
-    const list = [];
-    if (trace.halt && HALT_TOASTS[trace.halt]) list.push({ id: `${trace.halt}-${Date.now()}`, ...HALT_TOASTS[trace.halt](trace) });
-    if (trace.error) list.push({ id: `err-${Date.now()}`, tone: 'error', title: 'Your code could not be traced', msg: trace.error });
-    setToasts(list.slice(0, 3));
-  }, [trace]);
-
-  /* ---- preset / params ---- */
-  const onPreset = (id) => {
-    const pr = byId(id);
-    setPresetId(id); setVals(defaults(pr)); setEditing(!!pr.custom); setCustomTrace(null);
-  };
-  const onParam = (key, text) => setVals((v) => ({ ...v, [key]: text }));
-  const onRun = () => { setCommitted({ src: draft, call: typed.call, depth: typed.depth }); setEditing(false); setRunNonce((n) => n + 1); };
-
-  useEffect(() => {
-    const onKey = (e) => {
-      const tag = (e.target.tagName || '').toLowerCase();
-      if (['input', 'textarea', 'select', 'button'].includes(tag) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); stepBack(); }
-      else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
-      else if (e.key === 'Home') goto(-1);
-      else if (e.key === 'End') goto(steps.length - 1);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
-
-  const error = trace.error && idx >= trace.events.length - 1 && trace.events.length ? trace.error : null;
-  const emptyErr = !trace.events.length && trace.error;
-  const shownDesc = emptyErr ? { kind: 'error', title: 'Error', parts: [{ t: 't', v: trace.error }] } : desc;
-
+  const route = useRoute();
+  let page;
+  if (route === '') page = <Landing />;
+  else if (route === 'recursion') page = <RecursionPage />;
+  else if (MODULES[route]) page = <AlgoPage key={route} moduleId={route} />;
+  else page = <NotFound route={route} />;
   return (
     <div className="min-h-screen">
-      <Navbar />
-      <Hero />
-      <main className="mx-auto max-w-[1500px] space-y-5 px-5 pb-32 pt-5">
-        <ControlCenter preset={preset} vals={vals} onPreset={onPreset} onParam={onParam} onRun={onRun} analysis={analysis} busy={busy} />
-        <div id="workspace" className="grid items-start gap-5 xl:grid-cols-[minmax(400px,.85fr)_minmax(0,1.5fr)]">
-          <div className="flex min-w-0 flex-col gap-5">
-            <CodePanel title={preset.custom ? 'Your code' : 'Code'} source={source} state={state} flash={flash} custom={!!preset.custom} editing={!!preset.custom && editing}
-              draft={draft} onDraft={setDraft} onToggleEdit={() => setEditing((e) => !e)} />
-            <WhyPanel desc={shownDesc} stepKey={idx} prediction={prediction} feedback={feedback} error={error} />
-          </div>
-          <Visualizer trace={trace} state={state} />
-        </div>
-        <InsightTabs preset={preset} trace={trace} state={state} analysis={analysis} idx={idx} onFlash={(line) => setFlash({ line, n: Date.now() })} />
-        <p className="pb-2 text-center text-xs text-slate-400 dark:text-zinc-500">Recursio · {PRESETS.length - 1} curated algorithms + sandboxed custom code · all processing happens in your browser</p>
-      </main>
-      <PlaybackBar pos={pos} total={steps.length} playing={playing} onFirst={() => goto(-1)} onPrev={stepBack} onNext={stepForward} onLast={() => goto(steps.length - 1)} onPlay={togglePlay}
-        onSeek={goto} speed={speed} onSpeed={setSpeed} gran={gran} onGran={changeGran} predict={predictOn} onPredict={(v) => { setPredictOn(v); if (!v) { setPending(null); setFeedback(null); } }} score={score} />
-      <Toasts toasts={toasts} onClose={closeToast} />
+      <Navbar route={route} />
+      <Suspense fallback={<Fallback />}>
+        <motion.div key={route} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>{page}</motion.div>
+      </Suspense>
+      {!MODULES[route] && <Footer />}
     </div>
   );
 }

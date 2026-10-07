@@ -1,4 +1,4 @@
-/* Recursio engine: tracing, deterministic replay, tree layout, step narration.
+/* StructuraLens recursion engine: tracing, deterministic replay, tree layout, step narration.
  *
  * A "trace" is a flat list of events produced once per run:
  *   call     – a frame is pushed             {k,id,line,g}

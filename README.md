@@ -1,8 +1,8 @@
-# Recursio 🚀
+# StructuraLens 🚀
 
-> **Live Production URL:** "URL Will Be provided soon"
+> **Live Production URL:** [https://structuralens.netlify.app/](https://structuralens.netlify.app/)
 
-An advanced, client-side web application built to solve a fundamental educational bottleneck for computer science students: visualizing how recursion operates invisibly under the hood.
+**StructuraLens** is a client-side DS & DAA visual learning platform for computer science students. It makes the concepts that are hardest to picture (recursion, sorting, searching, two pointers, backtracking, greedy, dynamic programming and graph traversals) visible, step by step, with code and animation moving in lock-step. It grew out of the original *Recursio* recursion visualizer, which lives on unchanged as the **Recursion** topic.
 
 ---
 
@@ -12,10 +12,10 @@ Recursion is notoriously difficult for students mastering data structures and al
 ---
 
 ## 🛠️ The Solution & Architecture
-**Recursio** bridges the gap between theoretical data structures and practical browser-based execution through a robust, secure, multi-frontend architecture:
+**StructuraLens** bridges the gap between theoretical data structures and practical browser-based execution through a robust, secure, multi-frontend architecture:
 
 * **Line-by-Line Code & Recursion Visualization:** Dynamically highlights active code lines in lock-step with real-time stack frame growth, variable states, and recursive tree branches.
-* **Non-Blocking Execution Sandbox:** Utilizes isolated HTML5 Web Workers (`trace.worker.js`) with strict hardware-level execution timeouts to safely intercept and handle infinite loops without crashing the browser main thread.
+* **Non-Blocking Execution Sandbox:** Utilizes isolated HTML5 Web Workers (`trace.worker.js` for the Recursion topic's custom code, `frames.worker.js` for the other topics) with strict hardware-level execution timeouts to safely intercept and handle infinite loops without crashing the browser main thread.
 * **Real-Time Step-by-Step State Synchronization:** Maps learner code execution directly into animations, visualizing stack depth, frame states, and tree transformations dynamically.
 * **Enterprise-Grade Security:** Implements strict Content Security Policy (CSP) headers and input sanitization to ensure a safe learning environment.
 
@@ -50,3 +50,20 @@ npm run dev
 
 # 5. Build for production (This generates your local 'dist/' production output folder)
 npm run build
+
+---
+
+## 🧭 Curriculum
+| Tier | Topics | Status |
+|---|---|---|
+| 1 · Data Structures | Complexity Analysis (growth curves, Big-O/Ω/Θ), Sorting (bubble, insertion, merge, quick), Searching (linear, binary), **Recursion** (the original, untouched module), Tree Traversals (in/pre/post-order, level-order), Graph Traversals (BFS, DFS with visited set), Two Pointers | Interactive |
+| 2 · Core paradigms | Backtracking (N-Queens), Greedy (interval scheduling), Dynamic Programming (0/1 knapsack, LCS, coin change) | Interactive |
+| 3 · Advanced DAA | Advanced D&C (**Strassen** animated; FFT, closest pair previews); Dynamic Programming (**0/1 Knapsack**, **MCM**, LCS, coin change animated; bitmask, tree DP previews); Advanced Graphs (**Dijkstra** and **A\*** animated; Tarjan SCC, Johnson, Ford-Fulkerson, AO\* previews); String & Geometric (**KMP** animated; Rabin-Karp, convex hull previews) | Flagships interactive; the rest are annotated previews (click a line of pseudo-code to see what it does) |
+
+**Adaptive Explanation Engine:** every topic except Recursion has a Beginner / Intermediate-Advanced toggle (remembered across visits) that swaps analogy and step-by-step text for complexity, proof sketches and trade-offs, plus a per-step hint. Content lives in `src/platform/explanations*.js`.
+
+**Split-screen workspace:** every topic except Recursion uses a no-scroll layout (`height: calc(100vh - navbar)`): code / My code / Explain on the left, the visualizer on the right, playback controls pinned below. Verified at 1366×768 and 1280×720: the page itself never scrolls.
+
+**My code (all topics except Recursion):** write your own implementation next to the algorithm. It runs in an isolated Web Worker (`src/platform/code/usercode.worker.js`, 3 s hard timeout) against a contract of tests per algorithm (`contracts.js`; judged by trusted reference code on the main thread). Turn on **Suggestion & Correction Mode** (default off) to also get pattern-based logic checks (`rules.js`): *incorrect logic* (e.g. missing backtrack step), *minor mistakes* with an **Accept suggestion** button that rewrites the offending line, and *optimization* hints (including a timing probe). These checks are heuristics: the tests decide correctness. Algorithms without a contract get a plain scratchpad.
+
+Routing is hash based (`#/sorting`), so the static site needs no redirect rules. New algorithms plug into `src/platform/algorithms/*` (a `run(params)` that records frames with `F.add(line, note, kind, vizState)`), plus a viz component in `src/platform/viz/`.

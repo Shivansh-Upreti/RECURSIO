@@ -6,7 +6,7 @@ const dist = resolve('dist');
 if (!existsSync(resolve(dist, 'index.html'))) { console.error('dist/index.html is missing: build did not produce a site.'); process.exit(1); }
 const hasHeaders = existsSync(resolve(dist, '_headers'));
 console.log(`
-==================  Recursio build is ready  ==================
+==================  StructuraLens build is ready  ==================
  Output folder : ${dist}
  _headers file : ${hasHeaders ? 'present (security headers will be applied by Netlify)' : 'MISSING: security headers will NOT be applied'}
 

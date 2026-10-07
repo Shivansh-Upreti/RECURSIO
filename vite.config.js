@@ -7,7 +7,14 @@ export default defineConfig({
   // the CSP it needs to evaluate learner code, while every other path keeps a strict no-eval CSP.
   worker: {
     format: 'es',
-    rollupOptions: { output: { entryFileNames: 'sandbox/[name]-[hash].js', chunkFileNames: 'sandbox/[name]-[hash].js' } },
+    // trace.worker + usercode.worker (evaluate learner code) -> /sandbox/ ; every other worker (curated algorithms only) -> /workers/.
+    // public/_headers gives each directory its own CSP, so only the code-eval worker is ever allowed 'unsafe-eval'.
+    rollupOptions: {
+      output: {
+        entryFileNames: (c) => (/^(trace|usercode)/.test(c.name) ? 'sandbox/' : 'workers/') + '[name]-[hash].js',
+        chunkFileNames: (c) => (/^(trace|usercode)/.test(c.name) ? 'sandbox/' : 'workers/') + '[name]-[hash].js',
+      },
+    },
   },
   build: { target: 'es2022', sourcemap: false },
 });

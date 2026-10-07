@@ -17,3 +17,8 @@
 /sandbox/*
   Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'
   Cache-Control: public, max-age=31536000, immutable
+
+# Algorithm-frame workers run only curated code from this repo: no eval, no network.
+/workers/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'
+  Cache-Control: public, max-age=31536000, immutable
